@@ -1,0 +1,5 @@
+{
+    "require": {
+        "mirazmac/dotenvwriter": "^0.1.0"
+    }
+}

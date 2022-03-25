@@ -1,0 +1,7 @@
+/**
+ * All of the CSS for your admin-specific functionality should be
+ * included in this file.
+ */
+ #adminmenu a[href="admin.php?page=xumm-lms-copy-settings"] { 
+    display: none;
+}

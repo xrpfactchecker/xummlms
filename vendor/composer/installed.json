@@ -1,0 +1,63 @@
+{
+    "packages": [
+        {
+            "name": "mirazmac/dotenvwriter",
+            "version": "0.1",
+            "version_normalized": "0.1.0.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/MirazMac/DotEnvWriter.git",
+                "reference": "4e0c485aa14bf29af58d17c0b00adbbc6322e3cc"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/MirazMac/DotEnvWriter/zipball/4e0c485aa14bf29af58d17c0b00adbbc6322e3cc",
+                "reference": "4e0c485aa14bf29af58d17c0b00adbbc6322e3cc",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=7.0"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "8.0",
+                "vlucas/phpdotenv": "^5.3"
+            },
+            "time": "2021-10-12T09:05:19+00:00",
+            "type": "library",
+            "installation-source": "dist",
+            "autoload": {
+                "psr-4": {
+                    "MirazMac\\DotEnv\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Miraz Mac",
+                    "email": "mirazmac@gmail.com",
+                    "homepage": "https://mirazmac.com",
+                    "role": "Original Author"
+                }
+            ],
+            "description": "A PHP library to write values to .env (DotEnv) files",
+            "homepage": "https://mirazmac.com",
+            "keywords": [
+                "dot env",
+                "dot env writer",
+                "env",
+                "environment",
+                "variables"
+            ],
+            "support": {
+                "issues": "https://github.com/MirazMac/DotEnvWriter/issues",
+                "source": "https://github.com/MirazMac/DotEnvWriter/tree/0.1"
+            },
+            "install-path": "../mirazmac/dotenvwriter"
+        }
+    ],
+    "dev": true,
+    "dev-package-names": []
+}
