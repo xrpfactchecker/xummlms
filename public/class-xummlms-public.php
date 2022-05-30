@@ -60,29 +60,30 @@ class Xummlms_Public {
 		global $wpdb;
 
 		// Custom query to get all of the data needed efficiently
+		$user_id      = get_current_user_id();
  		$user_lessons = $wpdb->get_results(
 			"SELECT
 				course.post_title AS course_title,
 				lesson.ID AS lesson_id,
 				lesson.post_title AS lesson_title,
-				payout.meta_value AS user_payout,
-				grade.meta_value AS user_grade
+				payouts.payout_data AS user_payout,
+				payouts.grade AS user_grade
 			FROM
 				{$wpdb->posts} AS course INNER JOIN
 				{$wpdb->postmeta} AS course_lesson ON course_lesson.meta_value = course.id INNER JOIN
 				{$wpdb->posts} AS lesson ON lesson.ID = course_lesson.post_id INNER JOIN
-				{$wpdb->comments} AS user_quiz ON user_quiz.comment_post_ID = lesson.ID INNER JOIN
-				{$wpdb->commentmeta} AS grade ON grade.comment_id = user_quiz.comment_ID LEFT JOIN	
-				{$wpdb->commentmeta} AS payout ON (payout.comment_id = user_quiz.comment_ID AND payout.meta_key = 'xlms-quiz-payout')
+				{$wpdb->posts} AS quiz ON quiz.post_parent = lesson.ID INNER JOIN
+				{$wpdb->prefix}xl_lms_payouts AS payouts ON payouts.quiz_id = quiz.ID
 			WHERE
 				course.post_type = 'course' AND
 				course_lesson.meta_key = '_lesson_course' AND
 				lesson.post_type = 'lesson' AND
-				grade.meta_key = 'grade' AND
-				user_quiz.user_id = " . get_current_user_id() . "
+				quiz.post_type = 'quiz' AND
+				payouts.user_id = '{$user_id}'
 			ORDER BY
 				course.menu_order,
-				lesson.menu_order"
+				lesson.menu_order,
+				quiz.menu_order;"
 		);
 		
 		$output = '';
@@ -228,11 +229,11 @@ class Xummlms_Public {
 			}
 			
 			// Queue the payout to the user based on their score
-			$this::xummlms_queue_payout( $quiz_id, $user_answer_id, $user_id, $total_score, $course_title, $lesson_title );
+			$this::xummlms_queue_payout( $quiz_id, $user_answer_id, $user_id, $total_score, $course_title, $lesson_title, $grade );
 		}
 	}
 
-	public function xummlms_queue_payout( $quiz_id, $user_answer_id, $user_id, $amount, $course_title, $lesson_title ){
+	public function xummlms_queue_payout( $quiz_id, $user_answer_id, $user_id, $amount, $course_title, $lesson_title, $grade ){
 		$status = 'payPENDING';
 
 		// Get the user's wallet address
@@ -249,10 +250,21 @@ class Xummlms_Public {
 		]);
 		$encrypted_payout = Xummlogin_utils::xummlogin_encrypt_decrypt( $payout );
 
-		// Add payout info where the quiz results are saved and a separate to track status
-		add_comment_meta( $user_answer_id, 'xlms-quiz-payout', $encrypted_payout, true );
-		add_comment_meta( $user_answer_id, 'xlms-quiz-payout-amount', $amount, true );
-		add_comment_meta( $user_answer_id, 'xlms-quiz-payout-status', $status, true );
+		// Queue payout for the payment daemon to execute
+		global $wpdb;
+		$now = time();
+		$result = $wpdb->insert( $wpdb->prefix . 'xl_lms_payouts',
+			array(
+				'user_id'     => (int)$user_id,
+				'quiz_id'     => (int)$quiz_id,
+				'grade'       => (float)$grade,
+				'amount'      => (float)$amount,
+				'payout_data' => (string)$encrypted_payout,
+				'date_added'  => (int)$now,
+				'status'      => (string)$status
+			),
+			array('%d', '%d', '%f', '%f', '%s', '%d', '%s')
+		);
 	}
 
 	/**

@@ -14,19 +14,13 @@ function run_xummlms_cron(){
   // Custom query to get all of the data needed efficiently
   $lesson_stats = $database->wp_get_results(
     "SELECT
-      COUNT(DISTINCT payee_info.user_id) AS user_total,
-      SUM(payout_amount.meta_value) AS payout_total,
-      AVG(payout_grade.meta_value) AS grade_average
+      COUNT(DISTINCT payouts.user_id) AS user_total,
+      SUM(payouts.amount) AS payout_total,
+      AVG(payouts.grade) AS grade_average
     FROM
-      {$table_prefix}comments AS payee_info
-      INNER JOIN {$table_prefix}commentmeta AS payout_amount ON payout_amount.comment_id = payee_info.comment_ID
-        AND payout_amount.meta_key = 'xlms-quiz-payout-amount'
-      INNER JOIN {$table_prefix}commentmeta AS payout_status ON payout_amount.comment_id = payout_status.comment_id
-        AND payout_status.meta_key = 'xlms-quiz-payout-status'
-      INNER JOIN {$table_prefix}commentmeta AS payout_grade ON payout_amount.comment_id = payout_grade.comment_id
-        AND payout_grade.meta_key = 'grade'
+      {$table_prefix}xl_lms_payouts payouts
     WHERE
-      SUBSTRING_INDEX(payout_status.meta_value, ':', 1) = 'tesSUCCESS';"
+      payouts.status = 'tesSUCCESS';"
   );
 
   // Defaults

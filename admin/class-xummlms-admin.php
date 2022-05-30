@@ -158,18 +158,31 @@ class Xummlms_Admin {
 			$status = 'payPENDING';
 
 			// Get encrypted payout data to update status
-			$payout_data = get_comment_meta( $retry_id, 'xlms-quiz-payout' );
-			$payout = Xummlogin_utils::xummlogin_encrypt_decrypt( $payout_data[0], 'decrypt' );
+			global $wpdb;
+			$result = $wpdb->get_results("SELECT payout_data FROM {$wpdb->prefix}xl_lms_payouts WHERE id='{$retry_id}';");
+
+			// Make sure we got an existing payout
+			if( count($result) == 0 ){
+				exit('Invalid Payout ID');
+			}
+			
+			// Get the data and decrypt
+			$payout_data = $result[0]->payout_data;
+			$payout = Xummlogin_utils::xummlogin_encrypt_decrypt( $payout_data, 'decrypt' );
 			$payout = json_decode( $payout );
 			$payout->status = $status;
 			
 			// Update the updated payout encrypted data
 			$payout_data = json_encode( $payout );
-			update_comment_meta( $retry_id, 'xlms-quiz-payout', Xummlogin_utils::xummlogin_encrypt_decrypt( $payout_data ) );
+			$result = $wpdb->update( $wpdb->prefix . 'xl_lms_payouts',
+				array(
+					'payout_data' => (string)Xummlogin_utils::xummlogin_encrypt_decrypt( $payout_data ),
+					'status'      => (string)$status
+				),
+				array( 'id' => $retry_id ), array( '%s', '%s' ), array( '%d' )
+			);
 
-			// Update flat status as well
-			update_comment_meta( $retry_id, 'xlms-quiz-payout-status', $status );
-
+			// Go back where we came from
 			$redirect_url = isset($_GET['xlms-redirect']) ? $_GET['xlms-redirect'] : '';
 			if( $redirect_url !='' && substr($redirect_url, 0, 1) == '/' ){
 				header('location:' . $redirect_url);
@@ -471,27 +484,30 @@ class Xummlms_Admin {
 					course.post_title AS course_title,
 					lesson.ID AS lesson_id,
 					lesson.post_title AS lesson_title,
-					payout_amount.meta_value AS user_payout,
-					user_quiz.comment_ID quiz_id,
+					payouts.amount,
+					payouts.id payout_id,
 					users.ID user_id,
 					users.user_login username,
-					payout_status.meta_value AS status_data
+					payouts.date_processed,
+					payouts.tx_hash,
+					payouts.status
 				FROM
 					{$wpdb->posts} AS course INNER JOIN
 					{$wpdb->postmeta} AS course_lesson ON course_lesson.meta_value = course.id INNER JOIN
 					{$wpdb->posts} AS lesson ON lesson.ID = course_lesson.post_id INNER JOIN
-					{$wpdb->comments} AS user_quiz ON user_quiz.comment_post_ID = lesson.ID INNER JOIN
-					{$wpdb->commentmeta} AS payout_status ON (payout_status.comment_id = user_quiz.comment_ID AND payout_status.meta_key = 'xlms-quiz-payout-status') INNER JOIN	
-					{$wpdb->commentmeta} AS payout_amount ON (payout_amount.comment_id = user_quiz.comment_ID AND payout_amount.meta_key = 'xlms-quiz-payout-amount') INNER JOIN
-					{$wpdb->users} AS users ON users.ID = user_quiz.user_id
+					{$wpdb->posts} AS quiz ON quiz.post_parent = lesson.ID INNER JOIN
+					{$wpdb->prefix}xl_lms_payouts AS payouts ON payouts.quiz_id = quiz.ID INNER JOIN
+					{$wpdb->users} AS users ON users.ID = payouts.user_id
 				WHERE
 					course.post_type = 'course' AND
 					course_lesson.meta_key = '_lesson_course' AND
 					lesson.post_type = 'lesson' AND
-					SUBSTRING_INDEX(payout_status.meta_value, ':', 1) = '{$payout_status}'
+					quiz.post_type = 'quiz' AND
+					payouts.status = '{$payout_status}'
 				ORDER BY
 					course.menu_order,
-					lesson.menu_order;"
+					lesson.menu_order,
+					quiz.menu_order;"
 			);
 
 			$output = '';
@@ -505,9 +521,9 @@ class Xummlms_Admin {
 						'<td><a href="/wp-admin/user-edit.php?user_id=' . $payout->user_id . '" target="_blank">' . $payout->username . '</a></td>' .
 						'<td><a href="/wp-admin/post.php?post=' . $payout->course_id . '&action=edit" target="_blank">' . $payout->course_title . '</a></td>' .
 						'<td><a href="/wp-admin/post.php?post=' . $payout->lesson_id . '&action=edit" target="_blank">' . $payout->lesson_title . '</a></td>' .
-						'<td>' . $payout->user_payout . ' $' . $currency_name . '</td>' .
-						'<td>' . $this->xummlms_get_payout_status_date( $payout->status_data ) . '</td>' .
-						'<td>' . $this->xummlms_get_payout_status_links( $payout->status_data, $payout->quiz_id ) . '</td>' .
+						'<td>' . $payout->amount . ' $' . $currency_name . '</td>' .
+						'<td>' . $this->xummlms_get_payout_status_date( $payout->date_processed ) . '</td>' .
+						'<td>' . $this->xummlms_get_payout_status_links( $payout->status, $payout->tx_hash, $payout->payout_id ) . '</td>' .
 					'</tr>';
 			}
 
@@ -520,7 +536,7 @@ class Xummlms_Admin {
 							'<th>Course</th>' .
 							'<th>Lesson</th>' .
 							'<th>Payout</th>' .
-							'<th>Last Attempt</th>' .
+							'<th>Date Processed</th>' .
 							'<th>Status/Action</th>' .
 						'</tr>' .
 					'</thead>' .
@@ -545,17 +561,13 @@ class Xummlms_Admin {
 			// Custom query to get all of the data needed efficiently
 			$payout_statuses = $wpdb->get_results(
 				"SELECT
-					SUBSTRING_INDEX(payout_status.meta_value, ':', 1) AS status_name,
-					COUNT(payout_status.meta_id) AS payout_count,
-					SUM(payout_amount.meta_value) AS payout_total
+					payouts.status AS status_name,
+					COUNT(payouts.id) AS payout_count,
+					SUM(payouts.amount) AS payout_total
 				FROM
-					{$wpdb->commentmeta} AS payout_amount
-					INNER JOIN {$wpdb->commentmeta} AS payout_status ON payout_amount.comment_id = payout_status.comment_id
-						AND payout_status.meta_key = 'xlms-quiz-payout-status'
-				WHERE
-					payout_amount.meta_key = 'xlms-quiz-payout-amount'
+					{$wpdb->prefix}xl_lms_payouts AS payouts
 				GROUP BY
-					SUBSTRING_INDEX(payout_status.meta_value, ':', 1);"
+				payouts.status;"
 			);
 
 			$total_payouts_count  = 0;
@@ -662,17 +674,31 @@ class Xummlms_Admin {
 		return $columns;
 	}
 
-	public function xummlms_custom_grading_columns_data($columns_data, $quiz){
-		$payout_status_data     = get_comment_meta( $quiz->comment_ID, 'xlms-quiz-payout-status' );
-		$columns_data['payout'] = $this->xummlms_get_payout_status_links( $payout_status_data[0], $quiz->comment_ID );
+	public function xummlms_custom_grading_columns_data($columns_data, $item){
+		global $wpdb;
+		$result = $wpdb->get_results(
+			"SELECT
+				payouts.id payout_id,
+				payouts.tx_hash,
+				payouts.status
+			FROM
+				{$wpdb->prefix}xl_lms_payouts payouts INNER JOIN
+				{$wpdb->posts} posts ON posts.ID = payouts.quiz_id
+			WHERE
+				payouts.user_id='{$item->user_id}' AND
+				posts.post_parent='{$item->comment_post_ID}';"
+		);
+
+		$columns_data['payout'] = 'N/A';
+		if( count($result) > 0 ){
+			$columns_data['payout'] = $this->xummlms_get_payout_status_links( $result[0]->status, $result[0]->tx_hash, $result[0]->payout_id );
+		}
 
 		return $columns_data;
 	}
 
-	private function xummlms_get_payout_status_links( $status_blob, $payout_id ){
-		// Split up in parts
-		list( $status_name, $hash ) = explode(':', $status_blob . ':');
-		$status_row_links = $status_name;
+	private function xummlms_get_payout_status_links( $status, $hash, $payout_id ){
+		$status_row_links = $status;
 
 		// Add tx link if we have a hash
 		if( $hash != '' ){
@@ -680,18 +706,15 @@ class Xummlms_Admin {
 		}
 
 		// Add retry link depending on the status
-		if( $status_name != '' && !in_array( substr( $status_name, 0, 3 ), ['pay', 'tes'] ) ){
+		if( $status != '' && !in_array( substr( $status, 0, 3 ), ['pay', 'tes'] ) ){
 			$status_row_links .= ' | <a href="?xlms-retry=' . $payout_id . '&xlms-redirect=' . urlencode($_SERVER['REQUEST_URI']) . '" class="xlms-payout-retry" data-quiz-id="' . $payout_id . '">' . __('Retry') . '</a>';
 		}
 				
 		return $status_row_links;
 	}
 
-	private function xummlms_get_payout_status_date( $status_blob ){
-		// Split up in parts
-		list( $status_name, $hash, $timestamp ) = explode(':', $status_blob . '::');
-
-		return ( (int)$timestamp > 0 ) ? date( _('F j, Y'), $timestamp ) : '';
+	private function xummlms_get_payout_status_date( $date_processed ){
+		return ( (int)$date_processed > 0 ) ? date( _('F j, Y'), $date_processed ) : '';
 	}
 
 	public function xummlms_custom_grading_label($formatted_points, $points){
