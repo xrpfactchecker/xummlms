@@ -52,14 +52,144 @@ class Xummlms_Public {
 		$this->plugin_name = $plugin_name;
 		$this->version = $version;
 
+		add_shortcode('xummlmspayouts', [$this, 'xummlms_user_payouts']);
+		add_shortcode('xummlmsstats'  , [$this, 'xummlms_stats']);
 	}
 
-	public function xlms_load_sensei_lms_hooks(){
-		add_action( 'sensei_user_quiz_submitted', [$this, 'xlms_check_quiz_status'], 10, 5 );
-		add_filter( 'sensei_user_quiz_status_passed', [$this, 'xlms_success_message'], 10, 1 );
+	public function xummlms_user_payouts( $atts = array() ) {
+		global $wpdb;
+
+		// Custom query to get all of the data needed efficiently
+ 		$user_lessons = $wpdb->get_results(
+			"SELECT
+				course.post_title AS course_title,
+				lesson.ID AS lesson_id,
+				lesson.post_title AS lesson_title,
+				payout.meta_value AS user_payout,
+				grade.meta_value AS user_grade
+			FROM
+				{$wpdb->posts} AS course INNER JOIN
+				{$wpdb->postmeta} AS course_lesson ON course_lesson.meta_value = course.id INNER JOIN
+				{$wpdb->posts} AS lesson ON lesson.ID = course_lesson.post_id INNER JOIN
+				{$wpdb->comments} AS user_quiz ON user_quiz.comment_post_ID = lesson.ID INNER JOIN
+				{$wpdb->commentmeta} AS grade ON grade.comment_id = user_quiz.comment_ID LEFT JOIN	
+				{$wpdb->commentmeta} AS payout ON (payout.comment_id = user_quiz.comment_ID AND payout.meta_key = 'xlms-quiz-payout')
+			WHERE
+				course.post_type = 'course' AND
+				course_lesson.meta_key = '_lesson_course' AND
+				lesson.post_type = 'lesson' AND
+				grade.meta_key = 'grade' AND
+				user_quiz.user_id = " . get_current_user_id() . "
+			ORDER BY
+				course.menu_order,
+				lesson.menu_order"
+		);
+		
+		$output = '';
+		$payout_currency = get_option( 'xummlms_payout_currency' );
+
+		// Go through each finished lesson and display each rows accordingly
+		foreach($user_lessons as $index => $user_lesson) {
+
+			// Check if the lesson was passed or not
+			if( !is_null( $user_lesson->user_payout ) ){
+				$user_payout = json_decode( Xummlogin_utils::xummlogin_encrypt_decrypt( $user_lesson->user_payout, 'decrypt' ) );
+				$user_lesson->amount = $user_payout->amount . ' $' . $payout_currency;
+
+				// Check if we have a tx hash on the status
+				if( strpos( $user_payout->status, ':' ) !== false ){
+					list( $user_lesson->status, $user_lesson->hash, $user_lesson->when ) = explode( ':', $user_payout->status );
+					$user_lesson->status_display = '<a href="https://xrpscan.com/tx/' . $user_lesson->hash . '" target="_blank">' . $user_lesson->status . '</a>';
+
+					// Check the date of the payout
+					$user_lesson->when = date( _('F j, Y'), $user_lesson->when );
+				}
+				else{
+					$user_lesson->status_display = $user_lesson->status = $user_payout->status;
+					$user_lesson->when = '-';
+				}
+			}
+			else{
+				$user_lesson->when   = '-';
+				$user_lesson->amount = __('None');
+				$user_lesson->status = 'noPAYOUT';
+				$user_lesson->status_display = __('noPAYOUT');
+			}
+
+			// Get the lesson URL
+			$lesson_url = get_the_permalink( $user_lesson->lesson_id );
+			
+			// Setup the payout info row
+			$output .=
+				'<tr class="' . strtolower($user_lesson->status) . '">' .
+					'<td><a href="' . $lesson_url . '">' . $user_lesson->lesson_title . '</a></td>' .
+					'<td class="has-text-align-center" data-align="center">' . $user_lesson->user_grade . '%</td>' .
+					'<td class="has-text-align-right" data-align="right">' . $user_lesson->amount . '</td>' .
+					'<td class="has-text-align-right" data-align="right">' . $user_lesson->when . '</td>' .
+					'<td class="has-text-align-center" data-align="center">' . $user_lesson->status_display . '</td>' .
+				'</tr>';
+		}
+
+		// Prep the final table
+		$output =
+			'<table class="xl-lms-payouts">' .
+				'<thead>' .
+					'<tr>' .
+						'<th>Lesson</th>' .
+						'<th>Grade</th>' .
+						'<th>Payout</th>' .
+						'<th>Date</th>' .
+						'<th>Status</th>' .
+					'</tr>' .
+				'</thead>' .
+				'<tbody>' .
+					( $output != '' ? $output : '<tr><td colspan="5" class="has-text-align-center" data-align="center">' . __('You do not have any completed lessons.') . '</td></tr>' ) .
+				'</tbody>' .
+			'</table>';
+
+		// Bye
+		return $output;
 	}
 
-	public function xlms_check_quiz_status(  $user_id, $quiz_id, $grade, $quiz_pass_percentage, $quiz_grade_type ){
+	public function xummlms_stats( $atts = array() ){
+		global $wpdb;
+
+    // Merge params
+    extract(shortcode_atts(array(
+			'return' => '', // required - so no default
+		), $atts));
+
+		// Make sure we have what we need to return
+		if( $return == '' ){
+			return 'Missing the <code>return</code> parameter.';
+		}
+
+		$lesson_stats = (array)Xummlogin_utils::xummlogin_load_data('xlms_stats');
+
+		// Defaults
+		$student_total = $lesson_stats['students'];
+		$payouts_total = $lesson_stats['payouts'];
+		$grade_average = $lesson_stats['grades'];
+
+		// Return the stats that was requested
+		switch( $return ){
+			case 'payouts':
+				return $payouts_total;
+				break;
+			case 'students':
+				return $student_total;
+				break;
+			case 'grades':
+				return round($grade_average, 2);
+				break;
+		}
+	}
+
+	public function xummlms_load_sensei_lms_hooks(){
+		add_action( 'sensei_user_quiz_submitted', [$this, 'xummlms_check_quiz_status'], 10, 5 );
+	}
+
+	public function xummlms_check_quiz_status(  $user_id, $quiz_id, $grade, $quiz_pass_percentage, $quiz_grade_type ){
 
 		// Check if the person passed the quiz based on its results and quiz passing threshold
 		$quiz_passed = ($grade >= $quiz_pass_percentage);
