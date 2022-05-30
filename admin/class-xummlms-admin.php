@@ -412,20 +412,29 @@ class Xummlms_Admin {
 
 	public function xummlms_custom_grading_columns_data($columns_data, $quiz){
 
-		$payout_status_data = get_comment_meta( $quiz->comment_ID, 'xlms-quiz-payout-status' );
+		// Get the payout data if any in the database
+		$payout_status_data = get_comment_meta( $quiz->comment_ID, 'xlms-quiz-payout-status', true );
 
-		list( $payout_status, $hash ) = explode(':', $payout_status_data[0] . ':');
+		// Make sure it is not empty
+		if( $payout_status_data != '' ){
+			list( $payout_status, $hash ) = explode(':', $payout_status_data . ':');
 
-		$columns_data['payout'] = $payout_status;
+			$columns_data['payout'] = $payout_status;
 
-		if( $hash != '' ){
-			$columns_data['payout'] .= ' | <a href="https://xrpscan.com/tx/' . $hash . '/" target="_blank">View TX</a>';
+			// Add tx hash if we have one
+			if( $hash != '' ){
+				$columns_data['payout'] .= ' | <a href="https://xrpscan.com/tx/' . $hash . '/" target="_blank">View TX</a>';
+			}
+
+			// Add retry link on failed transactions
+			if( !in_array( $payout_status, ['payPENDING', 'tesSUCCESS'] ) ){
+				$columns_data['payout'] .= ' | <a href="?xlms-retry=' . $quiz->comment_ID . '&xlms-redirect=' . urlencode($_SERVER['REQUEST_URI']) . '" class="xlms-payout-retry" data-quiz-id="' . $quiz->comment_ID . '">' . __('Retry') . '</a>';
+			}
 		}
-
-		if( !in_array( $payout_status, ['payPENDING', 'tesSUCCESS'] ) ){
-			$columns_data['payout'] .= ' | <a href="?xlms-retry=' . $quiz->comment_ID . '&xlms-redirect=' . urlencode($_SERVER['REQUEST_URI']) . '" class="xlms-payout-retry" data-quiz-id="' . $quiz->comment_ID . '">' . __('Retry') . '</a>';
+		else{
+			$columns_data['payout'] = 'N/A';
 		}
-				
+					
 		return $columns_data;
 	}
 

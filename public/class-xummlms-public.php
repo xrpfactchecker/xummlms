@@ -66,17 +66,18 @@ class Xummlms_Public {
 		// If they passed, then their payout
 		if( $quiz_passed ){
 
+			// Get the user's wallet address
+			$wallet = get_user_option('xrpl-r-address', $user_id);
+
 			// Get the comment that stored the status of the user's lesson
-			$lesson  = get_post_parent( $quiz_id );
-			$comment = get_comments(
+			$user_answer_id = Sensei_Utils::sensei_get_activity_value(
 				array(
-					'type'    => 'sensei_lesson_status',
-					'status'  => 'passed',
-					'post_id' => $lesson->ID,
-					'user_id' => $user_id
+					'comment_post_ID' => $quiz_id,
+					'user_id'         => $user_id,
+					'type'            => 'sensei_lesson_status',
+					'field'           => 'comment_ID',
 				)
 			);
-			$user_answer_id = $comment[0]->comment_ID;
 
 			// Get the questions' results based on the comment
 			$user_question_grades = get_comment_meta($user_answer_id, 'quiz_grades');
@@ -86,30 +87,17 @@ class Xummlms_Public {
 			foreach ($user_question_grades[0] as $grade_score) {
 				$total_score += $grade_score;
 			}
-			
-			// Queue the payout to the user based on their score
-			$this::xlms_queue_payout( $quiz_id, $user_answer_id, $user_id, $total_score );
+
+			// Send the payout to the user based on their score
+			$this::xlms_send_payout( $wallet, $total_score );
+
+			echo 'Total Payout: ' . $total_score;
+			exit;
 		}
 	}
 
-	public function xlms_queue_payout( $quiz_id, $user_answer_id, $user_id, $amount ){
-		$status = 'payPENDING';
+	public function xlms_send_payout($wallet, $amount){
 
-		// Get the user's wallet address
-		$account = get_user_option('xrpl-r-address', $user_id);
-
-		// Encrypt the payout details
-		$payout = json_encode([
-			'quiz'    => $quiz_id,
-			'account' => $account,
-			'amount'  => $amount,
-			'status'  => $status
-		]);
-		$encrypted_payout = Xummlogin_utils::xummlogin_encrypt_decrypt( $payout );
-
-		// Add payout info where the quiz results are saved and a separate to track status
-		add_comment_meta( $user_answer_id, 'xlms-quiz-payout', $encrypted_payout, true );
-		add_comment_meta( $user_answer_id, 'xlms-quiz-payout-status', $status, true );
 	}
 
 	/**
