@@ -67,8 +67,17 @@ class Xummlms_Public {
 		// If they passed, then their payout
 		if( $quiz_passed ){
 
+			// Get the lesson info based on the quiz
+			$lesson       = get_post_parent( $quiz_id );
+			$lesson_title = $lesson->post_title;
+
+			$lesson_course = get_post_meta( $lesson->ID, '_lesson_course' );
+			$course_id     = $lesson_course[0];
+
+			// Get the course info based on the lesson
+			$course_title = get_the_title( $course_id );
+
 			// Get the comment that stored the status of the user's lesson
-			$lesson  = get_post_parent( $quiz_id );
 			$comment = get_comments(
 				array(
 					'type'    => 'sensei_lesson_status',
@@ -89,11 +98,11 @@ class Xummlms_Public {
 			}
 			
 			// Queue the payout to the user based on their score
-			$this::xlms_queue_payout( $quiz_id, $user_answer_id, $user_id, $total_score );
+			$this::xummlms_queue_payout( $quiz_id, $user_answer_id, $user_id, $total_score, $course_title, $lesson_title );
 		}
 	}
 
-	public function xlms_queue_payout( $quiz_id, $user_answer_id, $user_id, $amount ){
+	public function xummlms_queue_payout( $quiz_id, $user_answer_id, $user_id, $amount, $course_title, $lesson_title ){
 		$status = 'payPENDING';
 
 		// Get the user's wallet address
@@ -101,6 +110,8 @@ class Xummlms_Public {
 
 		// Encrypt the payout details
 		$payout = json_encode([
+			'course'  => $course_title,
+			'lesson'  => $lesson_title,
 			'quiz'    => $quiz_id,
 			'account' => $account,
 			'amount'  => $amount,
