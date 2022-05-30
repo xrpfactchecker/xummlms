@@ -75,6 +75,7 @@ class Xummlms_Admin {
 		// Add setting page option
 		add_action( 'admin_init', [$this, 'xummlms_settings_options'] );
 		add_action( 'admin_init', [$this, 'xummlms_settings_nodejsapp'] );
+		add_action( 'admin_init', [$this, 'xummlms_settings_payouts'] );
 
 	 	// Add hooks to encrypt and decrypt the seed value from the database
 		add_filter( 'pre_update_option_xummlms_payout_wallet_seed', [$this, 'xummlms_update_encrypt_seed'], 10, 1 );
@@ -144,6 +145,7 @@ class Xummlms_Admin {
 	public function xummlms_admin_menu(){
     	add_submenu_page('xumm-login', 'XUMM LMS Settings', 'XUMM LMS', 'manage_options', 'xumm-lms-settings', [$this, 'xummlms_settings'] );
     	add_submenu_page('xumm-login', 'XUMM LMS Copy Settings', 'XUMM LMS Copy', 'manage_options', 'xumm-lms-copy-settings', [$this, 'xummlms_copy_settings'] );
+    	add_submenu_page('xumm-login', 'XUMM LMS Payouts Stats', 'XUMM LMS Payouts', 'manage_options', 'xumm-lms-payouts', [$this, 'xummlms_payouts'] );
 	}
 
 	public function xummlms_payout_reset_payout(){
@@ -321,7 +323,7 @@ class Xummlms_Admin {
 			'xummlms_settings',
 			'xummlms_signing_info', [
 				'type'        => 'information',
-				'description' => '<code>' . Xummlogin_utils::xummlogin_get_key() . '</code>'
+				'description' => '<code>' . ( class_exists('Xummlogin_utils') ? Xummlogin_utils::xummlogin_get_key() : '' ) . '</code>'
 			]
 		);
 		register_setting(
@@ -368,6 +370,50 @@ class Xummlms_Admin {
 
 	}
 
+	public function xummlms_settings_payouts() {
+
+		// Add Wallet Payout Section
+		add_settings_section(
+			'xummlms_payouts_info',
+			'Payouts Information', 
+			[ $this, 'xummlms_settings_payouts_info' ],
+			'xummlms_settings'
+		);
+
+		// Add Wallet Address
+		add_settings_field(
+			'xummlms_payouts_stats',
+			'Payout Stats',
+			[ $this, 'xummlms_render_settings_field' ],
+			'xummlms_settings',
+			'xummlms_payouts_info', [
+				'type'        => 'information',
+				'description' => '<a href="?page=xumm-lms-payouts">View Stats</a>' 
+			]
+		);
+		register_setting(
+			'xummlms_settings',
+			'xummlms_payouts_stats'
+		);
+
+		// Add Payout Section
+		add_settings_section(
+			'xummlms_payouts_info',
+			'Payouts Information - Stats', 
+			[ $this, 'xummlms_settings_payouts_info_stats' ],
+			'xummlms_payouts'
+		);
+
+	}
+
+	public function xummlms_settings_payouts_info() {
+		echo '<p>Settings and tools to manage lessons payouts.</p>';
+	}
+
+	public function xummlms_settings_payouts_info_stats() {
+		echo '<p>Stats about the payouts and its various statuses.</p>';
+	}
+
 	public function xummlms_settings_nodejsapp_info() {
 		echo '<p>Setup information for the NodeJS Payout app for sending payments to users when they pass the LMS quizzes.</p>';
 	}
@@ -393,6 +439,171 @@ class Xummlms_Admin {
 
 		// We're good, show the goods
 		require_once 'partials/'.$this->plugin_name.'-admin-display.php';
+	}
+	
+	public function xummlms_payouts() {
+
+		// Make sure current user can manage options
+		if ( !current_user_can( 'manage_options' ) )  {
+			wp_die( __( 'You do not have sufficient permissions to access this page.' ) );
+		}
+
+		// We're good, show the goods
+		require_once 'partials/'.$this->plugin_name.'-payouts-stats-display.php';
+	}
+
+	public function xummlms_payout_list_payout(){
+		
+		// See if we get a request to requeue a payment
+		$payout_status = isset($_GET['xlms-payout']) ? (string)$_GET['xlms-payout'] : '';
+
+		// Process if we got one
+		if(	$payout_status != '' ){
+
+			global $wpdb;
+
+			$currency_name = get_option( 'xummlms_payout_currency' );
+
+			// Custom query to get all of the data needed efficiently
+			$payouts = $wpdb->get_results(
+				"SELECT
+					course.ID AS course_id,
+					course.post_title AS course_title,
+					lesson.ID AS lesson_id,
+					lesson.post_title AS lesson_title,
+					payout_amount.meta_value AS user_payout,
+					user_quiz.comment_ID quiz_id,
+					users.ID user_id,
+					users.user_login username,
+					payout_status.meta_value AS status_data
+				FROM
+					{$wpdb->posts} AS course INNER JOIN
+					{$wpdb->postmeta} AS course_lesson ON course_lesson.meta_value = course.id INNER JOIN
+					{$wpdb->posts} AS lesson ON lesson.ID = course_lesson.post_id INNER JOIN
+					{$wpdb->comments} AS user_quiz ON user_quiz.comment_post_ID = lesson.ID INNER JOIN
+					{$wpdb->commentmeta} AS payout_status ON (payout_status.comment_id = user_quiz.comment_ID AND payout_status.meta_key = 'xlms-quiz-payout-status') INNER JOIN	
+					{$wpdb->commentmeta} AS payout_amount ON (payout_amount.comment_id = user_quiz.comment_ID AND payout_amount.meta_key = 'xlms-quiz-payout-amount') INNER JOIN
+					{$wpdb->users} AS users ON users.ID = user_quiz.user_id
+				WHERE
+					course.post_type = 'course' AND
+					course_lesson.meta_key = '_lesson_course' AND
+					lesson.post_type = 'lesson' AND
+					SUBSTRING_INDEX(payout_status.meta_value, ':', 1) = '{$payout_status}'
+				ORDER BY
+					course.menu_order,
+					lesson.menu_order;"
+			);
+
+			$output = '';
+			
+			// Go through each status and output its stats
+			foreach($payouts as $index => $payout) {
+				
+				// Setup the payout info row
+				$output .=
+					'<tr">' .
+						'<td><a href="/wp-admin/user-edit.php?user_id=' . $payout->user_id . '" target="_blank">' . $payout->username . '</a></td>' .
+						'<td><a href="/wp-admin/post.php?post=' . $payout->course_id . '&action=edit" target="_blank">' . $payout->course_title . '</a></td>' .
+						'<td><a href="/wp-admin/post.php?post=' . $payout->lesson_id . '&action=edit" target="_blank">' . $payout->lesson_title . '</a></td>' .
+						'<td>' . $payout->user_payout . ' $' . $currency_name . '</td>' .
+						'<td>' . $this->xummlms_get_payout_status_date( $payout->status_data ) . '</td>' .
+						'<td>' . $this->xummlms_get_payout_status_links( $payout->status_data, $payout->quiz_id ) . '</td>' .
+					'</tr>';
+			}
+
+			// Prep the final table
+			$output =
+				'<table class="xl-lms-payouts wp-list-table widefat fixed striped table-view-list pages">' .
+					'<thead>' .
+						'<tr>' .
+							'<th>User</th>' .
+							'<th>Course</th>' .
+							'<th>Lesson</th>' .
+							'<th>Payout</th>' .
+							'<th>Last Attempt</th>' .
+							'<th>Status/Action</th>' .
+						'</tr>' .
+					'</thead>' .
+					'<tbody>' .
+						( $output != '' ? $output : '<tr><td colspan="6" class="has-text-align-center" data-align="center">' . __('No payouts queued for this status!') . '</td></tr>' ) .
+					'</tbody>' .				
+				'</table>';
+
+			// Done
+			echo $output;
+		}
+	}
+
+	public function xummlms_display_payouts_stats() {
+		global $wpdb;
+
+		// Check if a status was clicked on and we need to load all of its payout
+		if( isset($_GET['xlms-payout']) ){
+			$this->xummlms_payout_list_payout();
+		}
+		else{
+			// Custom query to get all of the data needed efficiently
+			$payout_statuses = $wpdb->get_results(
+				"SELECT
+					SUBSTRING_INDEX(payout_status.meta_value, ':', 1) AS status_name,
+					COUNT(payout_status.meta_id) AS payout_count,
+					SUM(payout_amount.meta_value) AS payout_total
+				FROM
+					{$wpdb->commentmeta} AS payout_amount
+					INNER JOIN {$wpdb->commentmeta} AS payout_status ON payout_amount.comment_id = payout_status.comment_id
+						AND payout_status.meta_key = 'xlms-quiz-payout-status'
+				WHERE
+					payout_amount.meta_key = 'xlms-quiz-payout-amount'
+				GROUP BY
+					SUBSTRING_INDEX(payout_status.meta_value, ':', 1);"
+			);
+
+			$total_payouts_count  = 0;
+			$total_payouts_amount = 0;
+			$output = '';
+
+			// Go through each status and output its stats
+			foreach($payout_statuses as $index => $payout_status) {
+				
+				// Setup the payout info row
+				$output .=
+					'<tr>' .
+						'<td><a href="?page=xumm-lms-payouts&amp;xlms-payout=' . $payout_status->status_name . '">' . $payout_status->status_name . '</a></td>' .
+						'<td>' . number_format( $payout_status->payout_count, 0, '.', ',') . '</td>' .
+						'<td>' . number_format( $payout_status->payout_total, 0, '.', ',') . '</td>' .
+					'</tr>';
+
+					$total_payouts_count += $payout_status->payout_count;
+					$total_payouts_amount += $payout_status->payout_total;
+			}
+
+			$currency_name = get_option( 'xummlms_payout_currency' );
+
+			// Prep the final table
+			$output =
+				'<table class="xl-lms-stats wp-list-table widefat fixed striped table-view-list pages">' .
+					'<thead>' .
+						'<tr>' .
+							'<th>Status</th>' .
+							'<th>Total Lessons</th>' .
+							'<th>Total $' . $currency_name . '</th>' .
+						'</tr>' .
+					'</thead>' .
+					'<tbody>' .
+						( $output != '' ? $output : '<tr><td colspan="3" class="has-text-align-center" data-align="center">' . __('No payouts queued!') . '</td></tr>' ) .
+					'</tbody>' .
+					'<tfoot>' .
+					'<tr>' .
+						'<td></td>' .
+						'<td>' . number_format( $total_payouts_count, 0, '.', ',') . ' Lessons</td>' .
+						'<td>' . number_format( $total_payouts_amount, 0, '.', ',') . ' $' . $currency_name . '</td>' .
+					'</tr>' .
+					'</tfoot>' .				
+				'</table>';
+
+			// Done
+			echo $output;
+		}
 	}
 
 	public function xummlms_copy_settings() {
@@ -452,31 +663,35 @@ class Xummlms_Admin {
 	}
 
 	public function xummlms_custom_grading_columns_data($columns_data, $quiz){
+		$payout_status_data     = get_comment_meta( $quiz->comment_ID, 'xlms-quiz-payout-status' );
+		$columns_data['payout'] = $this->xummlms_get_payout_status_links( $payout_status_data[0], $quiz->comment_ID );
 
-		// Get the payout data if any in the database
-		$payout_status_data = get_comment_meta( $quiz->comment_ID, 'xlms-quiz-payout-status', true );
-
-		// Make sure it is not empty
-		if( $payout_status_data != '' ){
-			list( $payout_status, $hash ) = explode(':', $payout_status_data . ':');
-
-			$columns_data['payout'] = $payout_status;
-
-			// Add tx hash if we have one
-			if( $hash != '' ){
-				$columns_data['payout'] .= ' | <a href="https://xrpscan.com/tx/' . $hash . '/" target="_blank">View TX</a>';
-			}
-
-			// Add retry link on failed transactions
-			if( !in_array( $payout_status, ['payPENDING', 'tesSUCCESS'] ) ){
-				$columns_data['payout'] .= ' | <a href="?xlms-retry=' . $quiz->comment_ID . '&xlms-redirect=' . urlencode($_SERVER['REQUEST_URI']) . '" class="xlms-payout-retry" data-quiz-id="' . $quiz->comment_ID . '">' . __('Retry') . '</a>';
-			}
-		}
-		else{
-			$columns_data['payout'] = 'N/A';
-		}
-					
 		return $columns_data;
+	}
+
+	private function xummlms_get_payout_status_links( $status_blob, $payout_id ){
+		// Split up in parts
+		list( $status_name, $hash ) = explode(':', $status_blob . ':');
+		$status_row_links = $status_name;
+
+		// Add tx link if we have a hash
+		if( $hash != '' ){
+			$status_row_links .= ' | <a href="https://xrpscan.com/tx/' . $hash . '/" target="_blank">View TX</a>';
+		}
+
+		// Add retry link depending on the status
+		if( $status_name != '' && !in_array( substr( $status_name, 0, 3 ), ['pay', 'tes'] ) ){
+			$status_row_links .= ' | <a href="?xlms-retry=' . $payout_id . '&xlms-redirect=' . urlencode($_SERVER['REQUEST_URI']) . '" class="xlms-payout-retry" data-quiz-id="' . $payout_id . '">' . __('Retry') . '</a>';
+		}
+				
+		return $status_row_links;
+	}
+
+	private function xummlms_get_payout_status_date( $status_blob ){
+		// Split up in parts
+		list( $status_name, $hash, $timestamp ) = explode(':', $status_blob . '::');
+
+		return ( (int)$timestamp > 0 ) ? date( _('F j, Y'), $timestamp ) : '';
 	}
 
 	public function xummlms_custom_grading_label($formatted_points, $points){

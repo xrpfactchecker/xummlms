@@ -16,7 +16,7 @@
  * Plugin Name:       XUMM LMS
  * Plugin URI:        https://xummlms.xrplstatus.com/
  * Description:       This plugin is an extension of the XUMM Login plugin that is required to run. XUMM LMS extends Sensei LMS (also required) to reward users with XRPL tokens.
- * Version:           0.2.1
+ * Version:           0.9.0
  * Author:            XRP Fact Checker
  * Author URI:        https://twitter.com/xrpfactchecker
  * License:           GPL-2.0+
@@ -31,11 +31,16 @@ if ( ! defined( 'WPINC' ) ) {
 }
 
 /**
+ * Default fee for the XRPL transaction if none are provided in the settings
+ */
+defined('DEFAULT_FEE_TX') or define('DEFAULT_FEE_TX', '12');
+
+/**
  * Currently plugin version.
  * Start at version 0.1.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-define( 'XUMMLMS_VERSION', '0.2.1' );
+define( 'XUMMLMS_VERSION', '0.9.0' );
 
 /**
  * The code that runs during plugin activation.

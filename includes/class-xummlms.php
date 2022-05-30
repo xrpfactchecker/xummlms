@@ -174,7 +174,7 @@ class Xummlms {
 		$this->loader->add_action( 'wp_enqueue_scripts', $plugin_public, 'enqueue_scripts' );
 
 		// Hooks for the Sensei LMS plugin
-		$this->loader->add_action( 'wp_loaded', $plugin_public, 'xlms_load_sensei_lms_hooks' );
+		$this->loader->add_action( 'wp_loaded', $plugin_public, 'xummlms_load_sensei_lms_hooks' );
 
 	}
 
