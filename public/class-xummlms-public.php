@@ -110,14 +110,8 @@ class Xummlms_Public {
 
 		// Add payout info where the quiz results are saved and a separate to track status
 		add_comment_meta( $user_answer_id, 'xlms-quiz-payout', $encrypted_payout, true );
+		add_comment_meta( $user_answer_id, 'xlms-quiz-payout-amount', $amount, true );
 		add_comment_meta( $user_answer_id, 'xlms-quiz-payout-status', $status, true );
-	}
-
-	public function xlms_success_message( $message ){
-
-		$message = $message . '<br><br>' . sprintf( __('Your $%s tokens reward is queued for payment.'), get_option( 'xummlms_payout_currency' ) );
-
-		return $message;
 	}
 
 	/**
