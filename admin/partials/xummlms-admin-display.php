@@ -31,7 +31,23 @@
         <tr class="params">
           <th scope="row"></th>
           <td>
-            For outputting the list of lessons a user has completed and their current payout status. <strong>No params</strong> for this short code.
+            For outputting the list of lessons a user has completed and their current payout status.
+            <table class="short-code-params">
+              <thead>
+                <tr>
+                  <th>Params</th>
+                  <th>Required</th>
+                  <th>Note</th>
+                </tr>
+              </thead>
+              <tbody>  
+                <tr>
+                  <td><code>type</code></td>
+                  <td>No</td>
+                  <td>The payout type to return: <code>earnings</code> or <code>burnings</code>. <code>earnings</code> is the default.</td>
+                </tr>
+              </tbody>
+            </table>              
           </td>
         </tr>
         <tr>
@@ -54,7 +70,7 @@
                 <tr>
                   <td><code>return</code></td>
                   <td>Yes</td>
-                  <td>What stats to return. Choices are <code>payouts</code>, <code>students</code> or <code>grades</code>.</td>
+                  <td>What stats to return. Choices are <code>earnings</code>, <code>burnings</code>, <code>students</code> or <code>grades</code>.</td>
                 </tr>
               </tbody>
             </table>  

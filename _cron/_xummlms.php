@@ -15,7 +15,8 @@ function run_xummlms_cron(){
   $lesson_stats = $database->wp_get_results(
     "SELECT
       COUNT(DISTINCT payouts.user_id) AS user_total,
-      SUM(payouts.amount) AS payout_total,
+      SUM( CASE WHEN payouts.type = 'earn' THEN payouts.amount ELSE 0 END) AS earn_total,
+      SUM( CASE WHEN payouts.type = 'burn' THEN payouts.amount ELSE 0 END) AS burn_total, 
       AVG(payouts.grade) AS grade_average
     FROM
       {$table_prefix}xl_lms_payouts payouts
@@ -25,7 +26,8 @@ function run_xummlms_cron(){
 
   // Defaults
   $grade_average  = (float)$lesson_stats[0]['grade_average'];
-  $payouts_total  = (float)$lesson_stats[0]['payout_total'];
+  $earnings_total = (float)$lesson_stats[0]['earn_total'];
+  $burnings_total = (float)$lesson_stats[0]['burn_total'];
   $students_total = (int)$lesson_stats[0]['user_total'];
 
   // Close database
@@ -34,8 +36,9 @@ function run_xummlms_cron(){
   // Save to file
   $stats = [
     'grades'   => $grade_average,
-    'payouts'  => $payouts_total,
-    'students' => $students_total,
+    'earnings' => $earnings_total,
+    'burnings' => $burnings_total,
+    'students' => $students_total
   ];
   
   save_data('xlms_stats', $stats);  

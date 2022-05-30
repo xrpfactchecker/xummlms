@@ -74,6 +74,7 @@ class Xummlms_Admin {
 
 		// Add setting page option
 		add_action( 'admin_init', [$this, 'xummlms_settings_options'] );
+		add_action( 'admin_init', [$this, 'xummlms_settings_burn_settings'] );
 		add_action( 'admin_init', [$this, 'xummlms_settings_nodejsapp'] );
 		add_action( 'admin_init', [$this, 'xummlms_settings_payouts'] );
 
@@ -346,6 +347,53 @@ class Xummlms_Admin {
 
 	}
 
+	public function xummlms_settings_burn_settings() {
+
+		// Add Wallet Payout Section
+		add_settings_section(
+			'xummlms_burn_info',
+			'Token Burn Info', 
+			[ $this, 'xummlms_settings_burn_info' ],
+			'xummlms_settings'
+		);
+
+		// Add Burn Wallet info
+		add_settings_field(
+			'xummlms_burn_wallet',
+			'Burn Wallet',
+			[ $this, 'xummlms_render_settings_field' ],
+			'xummlms_settings',
+			'xummlms_burn_info', [
+				'id'          => 'xummlms_burn_wallet',
+				'name'        => 'xummlms_burn_wallet',
+				'description' => 'XRPL address for the wallet (blackholed) to send payouts to get burt.' .
+					( get_option('xummlms_burn_wallet') != '' ? ' <a href="https://xrpscan.com/account/' . get_option('xummlms_burn_wallet') . '" target="_blank">Open on XRPScan</a>.' : '')
+			]
+		);
+		register_setting(
+			'xummlms_settings',
+			'xummlms_burn_wallet'
+		);
+
+
+		// Add category slug for burning
+		add_settings_field(
+			'xummlms_burn_slug',
+			'LMS Category Slug',
+			[ $this, 'xummlms_render_settings_field' ],
+			'xummlms_settings',
+			'xummlms_burn_info', [
+				'id'          => 'xummlms_burn_slug',
+				'name'        => 'xummlms_burn_slug',
+				'description' => 'The category slug for courses that will be sent to burn instead of earn'
+			]
+		);
+		register_setting(
+			'xummlms_settings',
+			'xummlms_burn_slug'
+		);
+	}
+
 	public function xummlms_settings_nodejsapp() {
 
 		// Add Wallet Payout Section
@@ -433,6 +481,10 @@ class Xummlms_Admin {
 
 	public function xummlms_settings_options_info() {
 		echo '<p>Wallet information that will be used to send payouts when users completes quizzes. <strong>IMPORTANT:</strong> Keep a minimal fund in this wallet and top off as necessary.</p>';
+	}
+
+	public function xummlms_settings_burn_info() {
+		echo '<p>Settings for the token burn for the courses that are meant for burning the token.</p>';
 	}
 
 	public function xummlms_settings_nodejsapp_copy_info() {
@@ -563,15 +615,17 @@ class Xummlms_Admin {
 				"SELECT
 					payouts.status AS status_name,
 					COUNT(payouts.id) AS payout_count,
-					SUM(payouts.amount) AS payout_total
+					SUM( CASE WHEN payouts.type = 'earn' THEN payouts.amount ELSE 0 END) AS earn_total,
+      		SUM( CASE WHEN payouts.type = 'burn' THEN payouts.amount ELSE 0 END) AS burn_total
 				FROM
 					{$wpdb->prefix}xl_lms_payouts AS payouts
 				GROUP BY
-				payouts.status;"
+					payouts.status;"
 			);
 
-			$total_payouts_count  = 0;
-			$total_payouts_amount = 0;
+			$total_lessons_count  = 0;
+			$total_earnings_amount = 0;
+			$total_earnings_amount = 0;
 			$output = '';
 
 			// Go through each status and output its stats
@@ -582,11 +636,13 @@ class Xummlms_Admin {
 					'<tr>' .
 						'<td><a href="?page=xumm-lms-payouts&amp;xlms-payout=' . $payout_status->status_name . '">' . $payout_status->status_name . '</a></td>' .
 						'<td>' . number_format( $payout_status->payout_count, 0, '.', ',') . '</td>' .
-						'<td>' . number_format( $payout_status->payout_total, 0, '.', ',') . '</td>' .
+						'<td>' . number_format( $payout_status->earn_total, 0, '.', ',') . '</td>' .
+						'<td>' . number_format( $payout_status->burn_total, 0, '.', ',') . '</td>' .
 					'</tr>';
 
-					$total_payouts_count += $payout_status->payout_count;
-					$total_payouts_amount += $payout_status->payout_total;
+					$total_lessons_count   += $payout_status->payout_count;
+					$total_earnings_amount += $payout_status->earn_total;
+					$total_burnings_amount += $payout_status->burn_total;
 			}
 
 			$currency_name = get_option( 'xummlms_payout_currency' );
@@ -598,7 +654,8 @@ class Xummlms_Admin {
 						'<tr>' .
 							'<th>Status</th>' .
 							'<th>Total Lessons</th>' .
-							'<th>Total $' . $currency_name . '</th>' .
+							'<th>Earned $' . $currency_name . '</th>' .
+							'<th>Burnt $' . $currency_name . '</th>' .
 						'</tr>' .
 					'</thead>' .
 					'<tbody>' .
@@ -607,8 +664,9 @@ class Xummlms_Admin {
 					'<tfoot>' .
 					'<tr>' .
 						'<td></td>' .
-						'<td>' . number_format( $total_payouts_count, 0, '.', ',') . ' Lessons</td>' .
-						'<td>' . number_format( $total_payouts_amount, 0, '.', ',') . ' $' . $currency_name . '</td>' .
+						'<td>' . number_format( $total_lessons_count, 0, '.', ',') . ' Lessons</td>' .
+						'<td>' . number_format( $total_earnings_amount, 0, '.', ',') . ' $' . $currency_name . '</td>' .
+						'<td>' . number_format( $total_burnings_amount, 0, '.', ',') . ' $' . $currency_name . '</td>' .
 					'</tr>' .
 					'</tfoot>' .				
 				'</table>';

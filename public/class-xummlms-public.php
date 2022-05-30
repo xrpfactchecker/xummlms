@@ -59,6 +59,17 @@ class Xummlms_Public {
 	public function xummlms_user_payouts( $atts = array() ) {
 		global $wpdb;
 
+    // Merge params
+    extract(shortcode_atts(array(
+			'type' => 'earnings',
+		), $atts));
+
+		// Translate the short code param to the payout type
+		$paramToType = array(
+			'earnings' => 'earn',
+			'burnings' => 'burn',
+		);
+
 		// Custom query to get all of the data needed efficiently
 		$user_id      = get_current_user_id();
  		$user_lessons = $wpdb->get_results(
@@ -79,7 +90,8 @@ class Xummlms_Public {
 				course_lesson.meta_key = '_lesson_course' AND
 				lesson.post_type = 'lesson' AND
 				quiz.post_type = 'quiz' AND
-				payouts.user_id = '{$user_id}'
+				payouts.user_id = '{$user_id}' AND
+				payouts.type = '{$paramToType[$type]}'
 			ORDER BY
 				course.menu_order,
 				lesson.menu_order,
@@ -168,15 +180,19 @@ class Xummlms_Public {
 		$lesson_stats = (array)Xummlogin_utils::xummlogin_load_data('xlms_stats');
 
 		// Defaults
-		$student_total = $lesson_stats['students'];
-		$payouts_total = $lesson_stats['payouts'];
-		$grade_average = $lesson_stats['grades'];
+		$student_total  = $lesson_stats['students'];
+		$earnings_total = $lesson_stats['earnings'];
+		$burnings_total = $lesson_stats['burnings'];
+		$grade_average  = $lesson_stats['grades'];
 
 		// Return the stats that was requested
 		switch( $return ){
-			case 'payouts':
-				return $payouts_total;
+			case 'earnings':
+				return $earnings_total;
 				break;
+			case 'burnings':
+				return $burnings_total;
+				break;				
 			case 'students':
 				return $student_total;
 				break;
@@ -198,12 +214,19 @@ class Xummlms_Public {
 		// If they passed, then their payout
 		if( $quiz_passed ){
 
-			// Get the lesson info based on the quiz
-			$lesson       = get_post_parent( $quiz_id );
-			$lesson_title = $lesson->post_title;
-
+			// Get the lesson and course info based on the quiz
+			$lesson        = get_post_parent( $quiz_id );
+			$lesson_title  = $lesson->post_title;
 			$lesson_course = get_post_meta( $lesson->ID, '_lesson_course' );
 			$course_id     = $lesson_course[0];
+
+			// Ge the course category to know if the user earns or burns
+			$lesson_category      = get_the_terms( $course_id, 'course-category' );
+			$course_category_slug = $lesson_category !== false ? $lesson_category[0]->slug : '';
+
+			// Set the payout type based on the course category
+			$burn_slug   = get_option('xummlms_burn_slug');
+			$payout_type = ( $burn_slug != '' && $course_category_slug == $burn_slug ) ? 'burn' : 'earn';
 
 			// Get the course info based on the lesson
 			$course_title = get_the_title( $course_id );
@@ -229,42 +252,48 @@ class Xummlms_Public {
 			}
 			
 			// Queue the payout to the user based on their score
-			$this::xummlms_queue_payout( $quiz_id, $user_answer_id, $user_id, $total_score, $course_title, $lesson_title, $grade );
+			$this::xummlms_queue_payout( $quiz_id, $user_answer_id, $user_id, $total_score, $course_title, $lesson_title, $grade, $payout_type );
 		}
 	}
 
-	public function xummlms_queue_payout( $quiz_id, $user_answer_id, $user_id, $amount, $course_title, $lesson_title, $grade ){
+	public function xummlms_queue_payout( $quiz_id, $user_answer_id, $user_id, $amount, $course_title, $lesson_title, $grade, $payout_type ){
 		$status = 'payPENDING';
 
-		// Get the user's wallet address
-		$account = get_user_option('xrpl-r-address', $user_id);
+		// Get the payee's wallet address based on if this is a burn or a earn
+		$account = ( $payout_type == 'earn' ) ? get_user_option('xrpl-r-address', $user_id) : get_option('xummlms_burn_wallet');
 
-		// Encrypt the payout details
-		$payout = json_encode([
-			'course'  => $course_title,
-			'lesson'  => $lesson_title,
-			'quiz'    => $quiz_id,
-			'account' => $account,
-			'amount'  => $amount,
-			'status'  => $status
-		]);
-		$encrypted_payout = Xummlogin_utils::xummlogin_encrypt_decrypt( $payout );
+		// Queue payout if we have a payee address
+		if( $account != '' ){
 
-		// Queue payout for the payment daemon to execute
-		global $wpdb;
-		$now = time();
-		$result = $wpdb->insert( $wpdb->prefix . 'xl_lms_payouts',
-			array(
-				'user_id'     => (int)$user_id,
-				'quiz_id'     => (int)$quiz_id,
-				'grade'       => (float)$grade,
-				'amount'      => (float)$amount,
-				'payout_data' => (string)$encrypted_payout,
-				'date_added'  => (int)$now,
-				'status'      => (string)$status
-			),
-			array('%d', '%d', '%f', '%f', '%s', '%d', '%s')
-		);
+			// Encrypt the payout details
+			$payout = json_encode([
+				'course'  => $course_title,
+				'lesson'  => $lesson_title,
+				'quiz'    => $quiz_id,
+				'account' => $account,
+				'amount'  => $amount,
+				'status'  => $status
+			]);
+			$encrypted_payout = Xummlogin_utils::xummlogin_encrypt_decrypt( $payout );
+
+			// Queue payout for the payment daemon to execute
+			global $wpdb;
+			$now = time();
+			$result = $wpdb->insert( $wpdb->prefix . 'xl_lms_payouts',
+				array(
+					'user_id'     => (int)$user_id,
+					'quiz_id'     => (int)$quiz_id,
+					'type'        => (string)$payout_type,
+					'grade'       => (float)$grade,
+					'amount'      => (float)$amount,
+					'payout_data' => (string)$encrypted_payout,
+					'date_added'  => (int)$now,
+					'status'      => (string)$status
+				),
+				array('%d', '%d', '%s', '%f', '%f', '%s', '%d', '%s')
+			);
+
+		}
 	}
 
 	/**
