@@ -86,6 +86,47 @@ class Xummlms_Admin {
 
 		// Add check for resetting a payout
 		add_action( 'admin_init', [$this, 'xummlms_payout_reset_payout'] );
+
+		// Add hooks to show/save the custom user fields
+		add_action( 'show_user_profile', array( $this, 'xummlms_custom_user_profile_fields' ) );
+		add_action( 'edit_user_profile', array( $this, 'xummlms_custom_user_profile_fields' ) );
+		add_action( 'user_new_form', array( $this, 'xummlms_custom_user_profile_fields' ) );
+		add_action( 'personal_options_update', array( $this, 'xummlms_save_custom_user_profile_fields' ) );
+		add_action( 'edit_user_profile_update', array( $this, 'xummlms_save_custom_user_profile_fields' ) );
+		add_action( 'user_register', array( $this, 'xummlms_save_custom_user_profile_fields' ) );
+	}
+
+	public function xummlms_custom_user_profile_fields( $user ){
+
+		// Get the field's current value if any
+		$field_value = ( isset($user->ID) && (int)$user->ID > 0 ) ? get_user_meta($user->ID, 'xlms_payout_banned', true) : '';
+
+		// Set the checked status based on the saved value
+		$field_checked_status = (int)$field_value == 1 ? ' checked="checked"' : '';
+		
+		// Output field only for admin
+		if( current_user_can('administrator') ){
+			echo '<h3 class="heading">XUMM LMS</h3>';
+			echo '<table class="form-table"><tr>';
+			echo '<th><label for="contact">Payouts</label></th>';
+			echo '<td>';
+				echo '<label for="xlms_payout_banned">';
+					echo '<input name="xlms_payout_banned" type="checkbox" id="xlms_payout_banned"' . $field_checked_status . ' value="1">Ban this user from payout';
+				echo '</label>';
+				echo '</td>';
+			echo '</tr></table>';
+		}
+	}
+
+	public function xummlms_save_custom_user_profile_fields( $user_id ){
+
+		// Stop now if the logged is not admin
+		if ( !current_user_can('administrator') ) {
+			return;
+		}
+
+		// We're good save meta value
+		update_user_meta( $user_id, 'xlms_payout_banned', $_POST['xlms_payout_banned'] );
 	}
 
 	public function xummlms_plugin_missing_xummlogin() {
